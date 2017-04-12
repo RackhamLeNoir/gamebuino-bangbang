@@ -4,20 +4,71 @@ Gamebuino gb;
 
 extern const byte font3x5[];
 
+#define PLAYER1AIMING   0
+#define PLAYER1SHOOTING 1
+#define PLAYER2AIMING   2
+#define PLAYER2SHOOTING 3
+#define END             4
+
+uint8_t gamestate = 0;
+uint8_t bulletpos = 0;
+
+uint8_t terrain[LCDWIDTH];
+
 struct cannon_t
 {
   unsigned int x;
   unsigned int y;
-  bool dir_r;
   uint8_t angle;
   float force;  
 };
 
-cannon_t cannon;
+cannon_t cannon1, cannon2;
+
+float rad_of_deg(uint8_t angle)
+{
+  return angle * PI / 180.0;
+}
+
+void interpolate_terrain(uint8_t min, uint8_t max)
+{
+  int diff = terrain[max] - terrain[min];
+  int l = max - min;
+  for (int i = min ; i < max ; i++)
+  {
+    terrain[i] = terrain[min] + diff * (i - min) / l;
+  }
+}
+
+void midpoint_terrain()
+{
+  terrain[0] = random(5, 20);
+  terrain[LCDWIDTH - 1] = random(5, 20);
+  interpolate_terrain(0, LCDWIDTH - 1);
+  uint8_t s = 2;
+  float d = 20.0, r = 0.2;
+  while (s < LCDWIDTH - 1)
+  {
+    uint8_t segmentsize = LCDWIDTH / s;
+    for (uint8_t i = 0 ; i < s - 1 ; i++)
+    {
+        terrain[segmentsize * (i + 1)] = constrain(terrain[segmentsize * (i + 1)] + random(-(int)d, (int)d), 0, LCDHEIGHT - 1);
+        interpolate_terrain(segmentsize * i, segmentsize * (i + 1));
+        d *= pow(2, -r);
+    }
+    interpolate_terrain(LCDWIDTH - segmentsize, LCDWIDTH - 1);
+    s += 1;
+  }
+}
 
 void init_game()
 {
-  cannon = { 10, 5, true, 45, 2 };
+  gamestate = 0;
+
+  midpoint_terrain();
+
+  cannon1 = { 10, terrain[10] + 1, 45, 2 };
+  cannon2 = { LCDWIDTH - 10, terrain[LCDWIDTH - 10] + 1, 45, 3 };
 }
 
 void setup()
@@ -30,53 +81,97 @@ void setup()
   init_game();
 }
 
-float trajectoire(float x)
+float trajectoire(float x, cannon_t c)
 {
-  float t = tan(cannon.angle * PI / 180.0);
-  return x * t - x*x*(1 + t*t)/(5 * cannon.force * cannon.force);
+  float t = tan(c.angle * PI / 180.0);
+  return x * t - x*x*(1 + t*t)/(5 * c.force * c.force);
 }
 
 void drawgame()
 {
   //terrain
-  gb.display.fillRect(0, LCDHEIGHT - cannon.y, LCDWIDTH, cannon.y);
+  for (int i = 0 ; i < LCDWIDTH ; i++)
+    gb.display.drawFastVLine(i, LCDHEIGHT - terrain[i], terrain[i]);
 
-  //cannon
-  gb.display.drawCircle(cannon.x, LCDHEIGHT - (cannon.y + 2), 2);
-  gb.display.drawLine(cannon.x, LCDHEIGHT - (cannon.y + 2), cannon.x + 4 * cos(cannon.angle * PI / 180.0), LCDHEIGHT - (cannon.y + 2 + 4 * sin(cannon.angle * PI / 180.0)));
+  //cannon 1
+  gb.display.drawCircle(cannon1.x, LCDHEIGHT - (cannon1.y + 2), 2);
+  gb.display.drawLine(
+    cannon1.x, 
+    LCDHEIGHT - (cannon1.y + 2), 
+    cannon1.x + 4 * cos(rad_of_deg(cannon1.angle)), 
+    LCDHEIGHT - (cannon1.y + 2 + 4 * sin(rad_of_deg(cannon1.angle))));
 
+  //cannon 2
+  gb.display.drawCircle(cannon2.x, LCDHEIGHT - (cannon2.y + 2), 2);
+  gb.display.drawLine(
+    cannon2.x, 
+    LCDHEIGHT - (cannon2.y + 2), 
+    cannon2.x - 4 * cos(rad_of_deg(cannon2.angle)), 
+    LCDHEIGHT - (cannon2.y + 2 + 4 * sin(rad_of_deg(cannon2.angle))));
+
+  //cursor under the aiming cannon
+  gb.display.setColor(GRAY);
+  if (gamestate == PLAYER1AIMING)
+    gb.display.drawTriangle(
+      cannon1.x - 1, LCDHEIGHT - (cannon1.y - 3),
+      cannon1.x, LCDHEIGHT - (cannon1.y - 2),
+      cannon1.x + 1, LCDHEIGHT - (cannon1.y - 3));
+  else if (gamestate == PLAYER2AIMING)
+    gb.display.drawTriangle(
+      cannon2.x - 1, LCDHEIGHT - (cannon2.y - 3),
+      cannon2.x, LCDHEIGHT - (cannon2.y - 2),
+      cannon2.x + 1, LCDHEIGHT - (cannon2.y - 3));
+
+  gb.display.setColor(BLACK);
   //debug trajectoire
-  for (int i = 0 ; i < LCDWIDTH - cannon.x; i++)
+  for (int i = 0 ; i < LCDWIDTH - cannon1.x; i++)
   {
-    int py = constrain(LCDHEIGHT - (trajectoire(i) + cannon.y + 2), 0, LCDHEIGHT);
-    gb.display.drawPixel(cannon.x + i, py);
+    int py = constrain(LCDHEIGHT - (trajectoire(i, cannon1) + cannon1.y + 2), 0, LCDHEIGHT);
+    gb.display.drawPixel(cannon1.x + i, py);
   }
+
+  //bullet
+  if (gamestate == PLAYER1SHOOTING)
+    gb.display.fillRect(cannon1.x + bulletpos, LCDHEIGHT - (cannon1.y + 2 + trajectoire(bulletpos, cannon1)), 2, 2);
+  else if (gamestate == PLAYER2SHOOTING)
+    gb.display.fillRect(cannon2.x - bulletpos, LCDHEIGHT - (cannon2.y + 2 + trajectoire(bulletpos, cannon2)), 2, 2);
 
   //debug info
   gb.display.setFont(font3x5);
-  gb.display.println(cannon.angle);
-  gb.display.println(cannon.force);
+  //gb.display.println(cannon1.angle);
+  //gb.display.println(cannon1.force);
+  gb.display.println(bulletpos);
+  gb.display.println(trajectoire(bulletpos, cannon1));
+  gb.display.println(terrain[bulletpos + cannon1.x]);
 }
 
 void drawwin()
 {
+  gb.display.setFont(font3x5);
+  gb.display.println("You win!");
 }
 
 void inputsgame()
 {
-/*  if(gb.buttons.pressed(BTN_1))
-    fire();*/
+  if(gb.buttons.pressed(BTN_A))
+  {
+    if (gamestate == PLAYER1AIMING)
+    {
+      gamestate = PLAYER1SHOOTING;
+      bulletpos = 0;
+    }
+  }
   if(gb.buttons.pressed(BTN_C))
     gb.titleScreen(F("Taquin"));
 
   if (gb.buttons.repeat(BTN_UP, 1))
-    cannon.angle = constrain(cannon.angle + 1, 0, 89);
+    cannon1.angle = constrain(cannon1.angle + 1, 0, 89);
   else if (gb.buttons.repeat(BTN_DOWN, 1))
-    cannon.angle = constrain(cannon.angle - 1, 0, 89);
+    cannon1.angle = constrain(cannon1.angle - 1, 0, 89);
   if (gb.buttons.repeat(BTN_LEFT, 1))
-    cannon.force = constrain(cannon.force - 0.2, 2, 20);
+    cannon1.force = constrain(cannon1.force - 0.2, 2, 20);
   else if (gb.buttons.repeat(BTN_RIGHT, 1))
-    cannon.force = constrain(cannon.force + 0.2, 2, 20);
+    cannon1.force = constrain(cannon1.force + 0.2, 2, 20);
 }
 
 void inputswin()
@@ -87,21 +182,47 @@ void inputswin()
     gb.titleScreen(F("Taquin"));
 }
 
-bool gamewon()
+void updategame()
 {
-  return false;
+  if (gamestate == PLAYER1SHOOTING)
+  {
+    bulletpos++;
+    uint8_t bullety = cannon1.y + trajectoire(bulletpos, cannon1);
+    uint8_t terrainy = terrain[bulletpos + cannon1.x];
+    if (cannon1.x + bulletpos > LCDWIDTH || bullety < 0)
+      gamestate == PLAYER1AIMING; //TEST
+    else if (bullety < terrainy)
+    {
+      uint8_t dx = cannon1.x + bulletpos - cannon2.x;
+      uint8_t dy = terrainy - cannon2.y;
+      int d = (int)dx * (int)dx  + (int)dy * (int)dy;
+      if (d < 2)
+      {
+        gamestate = END;
+        return;
+      }
+      gamestate = PLAYER1AIMING;
+      terrain[bulletpos + cannon1.x - 1] = min(terrain[bulletpos + cannon1.x - 1], terrainy - 1);
+      if (bulletpos - 1 < LCDWIDTH)
+        terrain[bulletpos + cannon1.x + 1] = min(terrain[bulletpos + cannon1.x + 1], terrainy - 1);
+      terrain[bulletpos + cannon1.x] -= 2;
+    }
+    cannon1.y = terrain[10] + 1;
+    cannon2.y = terrain[LCDWIDTH - 10];
+  }
 }
 
 void loop(){
   if(gb.update())
   {
-    if (gamewon())
+    if (gamestate == END)
     {
       inputswin();
       drawwin();
     }
     else
     {
+      updategame();
       inputsgame();
       drawgame();
     }
