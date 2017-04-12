@@ -3,6 +3,7 @@
 Gamebuino gb;
 
 extern const byte font3x5[];
+extern const byte font5x7[];
 
 #define PLAYER1AIMING   0
 #define PLAYER1SHOOTING 1
@@ -135,20 +136,19 @@ void drawgame()
     gb.display.fillRect(cannon1.x + bulletpos, LCDHEIGHT - (cannon1.y + 2 + trajectoire(bulletpos, cannon1)), 2, 2);
   else if (gamestate == PLAYER2SHOOTING)
     gb.display.fillRect(cannon2.x - bulletpos, LCDHEIGHT - (cannon2.y + 2 + trajectoire(bulletpos, cannon2)), 2, 2);
-
-  //debug info
-  gb.display.setFont(font3x5);
-  //gb.display.println(cannon1.angle);
-  //gb.display.println(cannon1.force);
-  gb.display.println(bulletpos);
-  gb.display.println(trajectoire(bulletpos, cannon1));
-  gb.display.println(terrain[bulletpos + cannon1.x]);
 }
 
 void drawwin()
 {
-  gb.display.setFont(font3x5);
+  gb.display.setFont(font5x7);
+  gb.display.cursorX = (LCDWIDTH - 6 * 8) / 2;
+  gb.display.cursorY = 12;
   gb.display.println("You win!");
+
+  gb.display.setFont(font3x5);
+  gb.display.cursorX = (LCDWIDTH - 4 * 19) / 2;
+  gb.display.cursorY = 35;
+  gb.display.println("Press \25 to continue");
 }
 
 void inputsgame()
@@ -187,16 +187,15 @@ void updategame()
   if (gamestate == PLAYER1SHOOTING)
   {
     bulletpos++;
-    uint8_t bullety = cannon1.y + trajectoire(bulletpos, cannon1);
+    uint8_t bullety = cannon1.y + (uint8_t)trajectoire(bulletpos, cannon1);
     uint8_t terrainy = terrain[bulletpos + cannon1.x];
     if (cannon1.x + bulletpos > LCDWIDTH || bullety < 0)
       gamestate == PLAYER1AIMING; //TEST
     else if (bullety < terrainy)
     {
-      uint8_t dx = cannon1.x + bulletpos - cannon2.x;
-      uint8_t dy = terrainy - cannon2.y;
-      int d = (int)dx * (int)dx  + (int)dy * (int)dy;
-      if (d < 2)
+      int dx = (int)(cannon1.x + bulletpos) - (int)cannon2.x;
+      int dy = (int)bullety - (int)cannon2.y;
+      if (dx >= -2 && dx <= 2 && dy >= -2 && dy <= 2)
       {
         gamestate = END;
         return;
